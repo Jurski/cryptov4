@@ -1,0 +1,12 @@
+{
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/"
+        }
+    },
+    "require": {
+        "guzzlehttp/guzzle": "^7.8",
+        "initphp/cli-table": "^1.0",
+        "nesbot/carbon": "^2.72"
+    }
+}
