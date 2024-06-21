@@ -68,92 +68,31 @@ class Wallet implements JsonSerializable
         $this->transactions = $transactions;
     }
 
+
     public function getTransactions(): array
     {
         return $this->transactions;
     }
 
-    public function buyCrypto(Cryptocurrency $cryptocurrency, float $amount): ?Transaction
+    public function addTransaction(Transaction $transaction): void
     {
-        $symbol = $cryptocurrency->getSymbol();
-        $price = $cryptocurrency->getPrice();
-
-        $totalCost = $amount * $price;
-
-        if ($totalCost <= $this->balanceUsd) {
-            $newBalance = $this->balanceUsd - $totalCost;
-
-            $this->setBalanceUsd($newBalance);
-
-            $currentHoldings = $this->getHoldings();
-
-            if (isset($currentHoldings[$symbol])) {
-                $currentHoldings[$symbol] += $amount;
-            } else {
-                $currentHoldings[$symbol] = $amount;
-            }
-
-            $this->setHoldings($currentHoldings);
-
-            $transaction = new Transaction(
-                Carbon::now('UTC'),
-                'purchase',
-                $amount,
-                $symbol,
-                $price
-            );
-
-            $this->transactions[] = $transaction;
-
-            echo "Succesfuly bought {$transaction->getAmount()} {$transaction->getCryptocurrency()}\n";
-
-            return $transaction;
-        } else {
-            echo "Not enough money for purhcase!";
-        }
-
-        return null;
+        $this->transactions[] = $transaction;
     }
 
-    public function sellCrypto(Cryptocurrency $cryptocurrency, float $amount): ?Transaction
+    public function removeHolding(string $symbol): void
     {
-        $symbol = $cryptocurrency->getSymbol();
-        $availableCrypto = $this->holdings[$symbol] ?? 0;
-
-        if ($availableCrypto >= $amount) {
-            $price = $cryptocurrency->getPrice();
-
-            $sellAmount = $amount * $price;
-
-            $currentBalance = $this->getBalanceUsd();
-            $newBalance = $currentBalance + $sellAmount;
-
-            $this->setBalanceUsd($newBalance);
-
-            $updatedAvailableCrypto = $availableCrypto - $amount;
-            if ($updatedAvailableCrypto <= 0) {
-                unset($this->holdings[$symbol]);
-            } else {
-                $this->holdings[$symbol] = $updatedAvailableCrypto;
-            }
-
-            $transaction = new Transaction(
-                Carbon::now("UTC"),
-                "sell",
-                $amount,
-                $symbol,
-                $price
-            );
-            $this->transactions[] = $transaction;
-
-            echo "Succesfuly sold {$transaction->getAmount()} {$transaction->getCryptocurrency()}\n";
-
-            return $transaction;
-        } else {
-            echo "You do not have that amount of crypto to sell!" . PHP_EOL;
-        }
-        return null;
+        unset($this->holdings[$symbol]);
     }
+
+    public function updateHolding(string $symbol, float $amount): void
+    {
+        if ($amount > 0) {
+            $this->holdings[$symbol] = $amount;
+        } else {
+            $this->removeHolding($symbol);
+        }
+    }
+
 
     public function jsonSerialize(): array
     {

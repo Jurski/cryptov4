@@ -7,20 +7,36 @@ use App\Api\CryptoApi;
 use App\Models\Cryptocurrency;
 use App\Models\User;
 use App\Models\Wallet;
-use App\Services\WalletService;
+use App\Repositories\WalletRepository;
+use App\Repositories\TransactionRepository;
+use App\Repositories\UserRepository;
+use App\Services\BuyService;
+use App\Services\SellService;
 use Carbon\Carbon;
 use InitPHP\CLITable\Table;
 
 class App
 {
     private CryptoApi $api;
-    private WalletService $walletService;
+    private WalletRepository $walletRepository;
+    private TransactionRepository $transactionRepository;
+    private UserRepository $userRepository;
+    private BuyService $buyService;
+    private SellService $sellService;
     private ?Wallet $wallet = null;
 
-    public function __construct(WalletService $walletService)
+    public function __construct(
+        WalletRepository      $walletRepository,
+        TransactionRepository $transactionRepository,
+        UserRepository        $userRepository
+    )
     {
         $this->api = new CmcApi();
-        $this->walletService = $walletService;
+        $this->walletRepository = $walletRepository;
+        $this->transactionRepository = $transactionRepository;
+        $this->userRepository = $userRepository;
+        $this->buyService = new BuyService();
+        $this->sellService = new SellService();
     }
 
     public function getWallet(): ?Wallet
@@ -58,8 +74,7 @@ class App
 
     public function loadUser(string $username, string $password): ?User
     {
-        $database = $this->walletService->getDatabase();
-        $user = $database->loadUser($username);
+        $user = $this->userRepository->loadUser($username);
 
         if ($user && md5($password) === $user["password"]) {
             return new User($user["id"], $user["username"], $user["password"]);
@@ -70,15 +85,15 @@ class App
 
     public function loadUserData(int $userId): void
     {
-        $this->wallet = $this->walletService->loadWallet($userId);
-        $transactions = $this->walletService->loadTransactions($this->wallet->getWalletId());
+        $this->wallet = $this->walletRepository->loadWallet($userId);
+        $transactions = $this->transactionRepository->loadTransactions($this->wallet->getWalletId());
 
         $this->wallet->setTransactions($transactions);
     }
 
     public function createWalletForUser(int $userId): void
     {
-        $this->walletService->createWalletForDB($userId);
+        $this->walletRepository->createWalletForDB($userId);
         $this->loadUserData($userId);
     }
 
@@ -97,15 +112,15 @@ class App
                 $result[0]->getPrice()
             );
 
-            $transaction = $this->wallet->buyCrypto($cryptocurrency, $amount);
+            $transaction = $this->buyService->execute($this->wallet, $cryptocurrency, $amount);
 
             if ($transaction) {
-                $this->walletService->updateWallet(
+                $this->walletRepository->updateWallet(
                     $this->wallet->getUserId(),
                     $this->wallet->getBalanceUsd(),
                     $this->wallet->getHoldings()
                 );
-                $this->walletService->saveTransaction(
+                $this->transactionRepository->saveTransaction(
                     $transaction,
                     $this->wallet->getWalletId()
                 );
@@ -125,18 +140,19 @@ class App
                 $symbol,
                 $result[0]->getPrice()
             );
-            $transaction = $this->wallet->sellCrypto(
+            $transaction = $this->sellService->execute(
+                $this->wallet,
                 $cryptocurrency,
                 $amount
             );
 
             if ($transaction) {
-                $this->walletService->updateWallet(
+                $this->walletRepository->updateWallet(
                     $this->wallet->getUserId(),
                     $this->wallet->getBalanceUsd(),
                     $this->wallet->getHoldings()
                 );
-                $this->walletService->saveTransaction(
+                $this->transactionRepository->saveTransaction(
                     $transaction,
                     $this->wallet->getWalletId()
                 );
@@ -171,16 +187,21 @@ class App
             $price = $apiData[0]->getPrice();
             $currentValue = $price * $amount;
             $totalCurrentValue += $currentValue;
-            $transactions = $this->findAllTransactionsBySymbol($symbol);
 
-            $totalPurchaseValue = 0;
+            $transactions = $this->findPurchaseTransactions($symbol);
+
+            $sumPurchasePrice = 0;
 
             foreach ($transactions as $transaction) {
                 $purchasePrice = $transaction->getPurchasePrice();
-                $totalPurchaseValue += $purchasePrice * $transaction->getAmount();
+                $sumPurchasePrice += $purchasePrice;
             }
 
-            $profit = $currentValue - $totalPurchaseValue;
+            $averagePurchasePrice = $sumPurchasePrice / count($transactions);
+
+            $purchaseValue = $averagePurchasePrice * $amount;
+
+            $profit = $currentValue - $purchaseValue;
 
             $table->row([
                 'name' => $symbol,
@@ -197,13 +218,13 @@ class App
         echo $table;
     }
 
-    private function findAllTransactionsBySymbol(string $symbol): array
+    private function findPurchaseTransactions(string $symbol): array
     {
         $transactions = $this->wallet->getTransactions();
         $filteredTransactions = [];
 
         foreach ($transactions as $transaction) {
-            if ($transaction->getCryptocurrency() === $symbol) {
+            if ($transaction->getCryptocurrency() === $symbol && $transaction->getType() === 'purchase') {
                 $filteredTransactions[] = $transaction;
             }
         }

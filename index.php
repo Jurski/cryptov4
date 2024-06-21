@@ -2,15 +2,17 @@
 
 require "vendor/autoload.php";
 
-use App\Database;
 use App\App;
-use App\Services\WalletService;
-
+use App\Database;
+use App\Repositories\WalletRepository;
+use App\Repositories\TransactionRepository;
+use App\Repositories\UserRepository;
 
 $database = new Database();
-$walletService = new WalletService($database);
-$app = new App($walletService);
-
+$walletRepository = new WalletRepository($database);
+$transactionRepository = new TransactionRepository($database);
+$userRepository = new UserRepository($database);
+$app = new App($walletRepository, $transactionRepository, $userRepository);
 
 while (true) {
     $username = readline("Enter your username: ");
